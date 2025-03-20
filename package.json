@@ -1,0 +1,49 @@
+{
+  "name": "kaiju-cat",
+  "version": "1.0.0",
+  "description": "A browser-based procedural strategy game where players guide Kaiju creatures by placing commands on the game board.",
+  "main": "index.js",
+  "scripts": {
+    "start": "npm run dev",
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/harshvardhanchand/Kaiju-Cat.git"
+  },
+  "keywords": [
+    "game",
+    "strategy",
+    "kaiju",
+    "procedural",
+    "typescript",
+    "react"
+  ],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/harshvardhanchand/Kaiju-Cat/issues"
+  },
+  "homepage": "https://github.com/harshvardhanchand/Kaiju-Cat#readme",
+  "dependencies": {
+    "@pixi/react": "^7.1.1",
+    "@types/react": "^18.2.61",
+    "@types/react-dom": "^18.2.19",
+    "pixi.js": "^7.4.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "@typescript-eslint/eslint-plugin": "^7.1.1",
+    "@typescript-eslint/parser": "^7.1.1",
+    "@vitejs/plugin-react": "^4.2.1",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5"
+  }
+}

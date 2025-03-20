@@ -1,0 +1,44 @@
+.header {
+  background-color: var(--background-color);
+  padding: 1rem;
+  border-bottom: 2px solid var(--primary-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.game-title {
+  font-size: 2rem;
+  margin: 0;
+  color: var(--secondary-color);
+  text-shadow: 0 0 5px rgba(255, 124, 63, 0.5);
+  font-weight: bold;
+}
+
+.header-buttons {
+  display: flex;
+  gap: 1rem;
+}
+
+.instructions-button {
+  padding: 0.5rem 1rem;
+  background-color: var(--tertiary-color);
+  color: var(--black);
+  border: none;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.instructions-button:hover {
+  background-color: var(--primary-color);
+  color: var(--white);
+  transform: translateY(-2px);
+} 

@@ -1,0 +1,30 @@
+:root {
+  --primary-color: #4a7dff;
+  --secondary-color: #ff7c3f;
+  --tertiary-color: #69d474;
+  --background-color: #0a192f;
+  --text-color: #f8f8f8;
+  --black: #141414;
+  --white: #fafafa;
+  --grid-size: 64px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Roboto', sans-serif;
+  background-color: var(--background-color);
+  color: var(--text-color);
+  overflow-x: hidden;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+} 
