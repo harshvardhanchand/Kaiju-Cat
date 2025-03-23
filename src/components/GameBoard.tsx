@@ -119,39 +119,45 @@ const GameBoard: React.FC = () => {
 
   const executeTurn = () => {
     if (gameStarted && !gameService.isGameOver()) {
-      // Capture current state before executing the turn
+      console.log(`ExecuteTurn: Current move before execution: ${gameService.getCurrentMove()}`);
+      
+      // Save the current state BEFORE execution to know the commands that led to the next state
       const currentState = captureCurrentState();
+      console.log(`ExecuteTurn: Current State - Move ${currentState.moveNumber}, Score: ${currentState.score}`);
       
-      console.log(`ExecuteTurn: Capturing state for move ${currentState.moveNumber}`);
-      
-      // Execute the turn first to capture changes
+      // Execute the turn
       gameService.executeTurn();
+      console.log(`ExecuteTurn: Executed turn, new move: ${gameService.getCurrentMove()}`);
       
-      // Then add previous state to the test plan
+      // Update test plan with the PREVIOUS state (before this turn)
       const updatedTestPlan = [...currentTestPlan, currentState];
       setCurrentTestPlan(updatedTestPlan);
-      console.log(`ExecuteTurn: Updated currentTestPlan length: ${updatedTestPlan.length}`);
+      console.log(`ExecuteTurn: Updated currentTestPlan to length: ${updatedTestPlan.length}`);
       
       // Clear current move commands for next turn
       setCurrentMoveCommands([]);
       
-      // Trigger UI refresh
+      // Refresh the board
       refreshBoard();
       
-      // If the game is over after this turn, save the test plan immediately 
-      // Include the final state in the save
+      // If the game is over after this turn, capture the final state and save
       if (gameService.isGameOver()) {
-        console.log("ExecuteTurn: Game is over, capturing final state and saving");
+        console.log("ExecuteTurn: Game is over, capturing final state");
         
-        // Capture the final state after the turn executed
+        // Capture the final state
         const finalState = captureCurrentState();
-        const completeTestPlan = [...updatedTestPlan, finalState];
-        console.log(`ExecuteTurn: Added final state with score ${finalState.score}`);
+        console.log(`ExecuteTurn: Final State - Move ${finalState.moveNumber}, Score: ${finalState.score}`);
         
+        // Create a complete plan with both the previous states and the final state
+        const completeTestPlan = [...updatedTestPlan, finalState];
+        console.log(`ExecuteTurn: Complete test plan has ${completeTestPlan.length} states`);
+        
+        // Always save the complete test plan when game is over
         if (isTestPlanRunning) {
+          console.log(`ExecuteTurn: Stopping test plan with ${completeTestPlan.length} states`);
           stopTestPlan(completeTestPlan);
         } else {
-          // Always save the test plan when game is over
+          console.log(`ExecuteTurn: Saving test plan with ${completeTestPlan.length} states`);
           saveCurrentTestPlan(completeTestPlan);
         }
       }
@@ -159,34 +165,103 @@ const GameBoard: React.FC = () => {
   };
 
   const saveCurrentTestPlan = (planToSave = currentTestPlan) => {
-    if (planToSave.length > 0) {
-      // Add final state - only if not already added
-      const finalState = captureCurrentState();
+    if (!planToSave || planToSave.length === 0) {
+      console.log("SaveCurrentTestPlan: No moves to save in currentTestPlan");
+      return;
+    }
+    
+    console.log(`SaveCurrentTestPlan: Preparing to save plan with ${planToSave.length} states`);
+    console.log(`SaveCurrentTestPlan: First state move: ${planToSave[0]?.moveNumber}, Last state move: ${planToSave[planToSave.length-1]?.moveNumber}`);
+    
+    try {
+      // Create a simplified version of the plan that doesn't include full Entity instances
+      const simplifiedPlan = planToSave.map(item => {
+        // Create simplified grid without entity methods
+        const simplifiedGrid = item.gridState.map(row => 
+          row.map(cell => {
+            if (!cell) return null;
+            
+            // Extract only the data we need based on entity type
+            if (cell.type === CellType.KAIJU) {
+              return {
+                type: cell.type,
+                position: { ...cell.position },
+                id: cell.id,
+                kaijuType: (cell as Kaiju).getKaijuType(),
+                power: (cell as Kaiju).getPower(),
+                direction: (cell as Kaiju).getDirection(),
+              };
+            } else if (cell.type === CellType.BUILDING) {
+              return {
+                type: cell.type,
+                position: { ...cell.position },
+                id: cell.id,
+                buildingType: (cell as Building).getBuildingType(),
+                intactFloors: (cell as Building).getIntactFloors(),
+                // We don't save commands as they're not needed for replay
+              };
+            } else if (cell.type === CellType.OBSTACLE) {
+              return {
+                type: cell.type,
+                position: { ...cell.position },
+                id: cell.id,
+                obstacleType: (cell as Obstacle).getObstacleType(),
+              };
+            } else if (cell.type === CellType.BED) {
+              return {
+                type: cell.type,
+                position: { ...cell.position },
+                id: cell.id,
+                kaijuType: (cell as Bed).getKaijuType(),
+                bedPosition: (cell as Bed).getBedPosition(),
+              };
+            } else {
+              return {
+                type: cell.type,
+                position: { ...cell.position },
+                id: cell.id,
+              };
+            }
+          })
+        );
+        
+        return {
+          moveNumber: item.moveNumber,
+          commandsPlaced: item.commandsPlaced.map(cmd => ({
+            position: { ...cmd.position },
+            floor: cmd.floor,
+            command: { ...cmd.command }
+          })),
+          score: item.score,
+          gridState: simplifiedGrid
+        };
+      });
       
-      // Check if we need to add the final state
-      let completePlan = [...planToSave];
-      const lastState = planToSave[planToSave.length - 1];
+      // Now we can safely JSON.stringify this simplified plan
+      const planCopy = JSON.parse(JSON.stringify(simplifiedPlan));
       
-      if (!lastState || lastState.moveNumber !== finalState.moveNumber) {
-        completePlan = [...planToSave, finalState];
-        console.log(`SaveCurrentTestPlan: Added final state for move ${finalState.moveNumber}`);
-      } else {
-        console.log(`SaveCurrentTestPlan: Final state already exists for move ${lastState.moveNumber}`);
-      }
-      
-      console.log(`SaveCurrentTestPlan: Saving test plan with ${completePlan.length} moves`);
-      console.log(`SaveCurrentTestPlan: First move: ${completePlan[0]?.moveNumber}, Last move: ${completePlan[completePlan.length-1]?.moveNumber}`);
-      
+      // Update the test plans state
       setTestPlans(prev => {
-        const updated = [...prev, completePlan];
-        console.log(`SaveCurrentTestPlan: Updated testPlans length: ${updated.length}`);
-        return updated;
+        const updatedPlans = [...prev, planCopy];
+        console.log(`SaveCurrentTestPlan: Updated testPlans length: ${updatedPlans.length}`);
+        
+        // Log details about the newly saved plan
+        const newPlanIndex = updatedPlans.length - 1;
+        const newPlan = updatedPlans[newPlanIndex];
+        console.log(`SaveCurrentTestPlan: Test plan ${newPlanIndex} saved with ${newPlan.length} states`);
+        console.log(`SaveCurrentTestPlan: First state: Move ${newPlan[0]?.moveNumber}, Score ${newPlan[0]?.score}`);
+        console.log(`SaveCurrentTestPlan: Last state: Move ${newPlan[newPlan.length-1]?.moveNumber}, Score ${newPlan[newPlan.length-1]?.score}`);
+        
+        return updatedPlans;
       });
       
       // Clear the current test plan after saving
       setCurrentTestPlan([]);
-    } else {
-      console.log("SaveCurrentTestPlan: No moves to save in currentTestPlan");
+      
+    } catch (error: any) {
+      console.error("SaveCurrentTestPlan: Error saving test plan:", error);
+      console.error("Error details:", error.message);
+      alert("Failed to save test plan. See console for details.");
     }
   };
 
@@ -253,17 +328,17 @@ const GameBoard: React.FC = () => {
   // Replay functions
   const startReplay = () => {
     if (testPlans.length === 0 || selectedTestPlanIndex >= testPlans.length) {
-      console.log("Cannot start replay - no valid test plan");
+      console.log("StartReplay: Cannot start replay - no valid test plan");
       return;
     }
     
     const selectedPlan = testPlans[selectedTestPlanIndex];
     if (!selectedPlan || selectedPlan.length <= 1) {
-      console.log("Cannot start replay - test plan has insufficient moves");
+      console.log("StartReplay: Cannot start replay - test plan has insufficient states");
       return;
     }
     
-    console.log(`Starting replay for test plan ${selectedTestPlanIndex} with ${selectedPlan.length} moves`);
+    console.log(`StartReplay: Starting replay for test plan ${selectedTestPlanIndex} with ${selectedPlan.length} states`);
     
     // Make sure we have a safe current replay move
     const maxMoves = selectedPlan.length - 1;
@@ -271,7 +346,7 @@ const GameBoard: React.FC = () => {
     
     // Start from beginning if at the end
     if (safeCurrentMove >= maxMoves) {
-      console.log("Replay at end, restarting from beginning");
+      console.log("StartReplay: Replay at end, restarting from beginning");
       setCurrentReplayMove(0);
     }
     
@@ -280,45 +355,59 @@ const GameBoard: React.FC = () => {
     // Clear any existing interval
     if (replayTimerRef.current !== null) {
       window.clearInterval(replayTimerRef.current);
+      replayTimerRef.current = null;
     }
     
-    // Set a new interval with a longer delay (2 seconds instead of 1)
+    // Set a new interval with a 1.5 second delay
     replayTimerRef.current = window.setInterval(() => {
       setCurrentReplayMove(prev => {
         const nextMove = prev + 1;
-        console.log(`Replay: Moving from move ${prev} to ${nextMove}`);
+        console.log(`StartReplay: Moving from move ${prev} to ${nextMove}`);
         
         if (nextMove >= selectedPlan.length) {
-          console.log('Replay: Reached the end, stopping');
+          console.log('StartReplay: Reached the end, stopping replay');
           stopReplay();
           return prev; // Stay at the last move
         }
         return nextMove;
       });
-    }, 2000); // 2 second interval for better visibility
+    }, 1500); // 1.5 second interval for better visibility
   };
 
   const stopReplay = () => {
-    console.log('Stopping replay');
+    console.log('StopReplay: Stopping replay');
     if (replayTimerRef.current !== null) {
       window.clearInterval(replayTimerRef.current);
       replayTimerRef.current = null;
-      setIsReplaying(false);
     }
+    setIsReplaying(false);
   };
 
   const restartReplay = () => {
-    console.log('Restarting replay');
+    console.log('RestartReplay: Restarting replay from beginning');
     stopReplay();
     setCurrentReplayMove(0);
-    setTimeout(() => startReplay(), 300); // Small delay before starting
+    // Small delay before starting to ensure state updates
+    setTimeout(() => startReplay(), 200);
   };
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    stopReplay();
+    // Stop any ongoing replay when manually adjusting the slider
+    if (isReplaying) {
+      stopReplay();
+    }
+    
     const newValue = parseInt(e.target.value);
-    console.log(`Slider changed to: ${newValue}`);
-    setCurrentReplayMove(newValue);
+    console.log(`HandleSliderChange: Slider moved to position ${newValue}`);
+    
+    // Ensure the value is valid
+    const selectedPlan = testPlans[selectedTestPlanIndex];
+    if (selectedPlan && newValue >= 0 && newValue < selectedPlan.length) {
+      setCurrentReplayMove(newValue);
+      console.log(`HandleSliderChange: Setting currentReplayMove to ${newValue}, showing state with score: ${selectedPlan[newValue]?.score}`);
+    } else {
+      console.log(`HandleSliderChange: Invalid slider value: ${newValue}`);
+    }
   };
 
   const handleCellClick = (row: number, col: number) => {
@@ -352,41 +441,65 @@ const GameBoard: React.FC = () => {
     setSelectedFloor(floor);
   };
 
+  // Add an effect to monitor showPastTests changes
+  useEffect(() => {
+    console.log(`ShowPastTests changed to: ${showPastTests}`);
+    if (showPastTests) {
+      console.log("Panel should now be visible");
+      // Force refresh of the board when showing past tests
+      setTimeout(() => {
+        console.log("Forcing refresh after showPastTests change");
+        refreshBoard();
+      }, 50);
+    }
+  }, [showPastTests]);
+
   const togglePastTests = () => {
-    console.log(`TogglePastTests: Current state - showPastTests: ${showPastTests}, gameStarted: ${gameStarted}, testPlans: ${testPlans.length}`);
+    debugState(); // Get full debug state when toggle is clicked
+    
+    console.log(`TogglePastTests: Button clicked - current state - showPastTests: ${showPastTests}, gameStarted: ${gameStarted}, testPlans: ${testPlans.length}`);
     
     if (showPastTests) {
       // We're closing the past tests panel
-      console.log("Hiding past tests panel");
-      setShowPastTests(false);
+      console.log("TogglePastTests: Hiding past tests panel");
       stopReplay();
+      setShowPastTests(false);
     } else {
       // We're opening the past tests panel
-      console.log(`Attempting to show past tests panel with ${testPlans.length} test plans`);
+      console.log(`TogglePastTests: Attempting to show past tests panel with ${testPlans.length} plans`);
       
-      // If we have an active test that hasn't been saved yet, save it first
+      // Check if we have test plans to show
+      if (testPlans.length === 0) {
+        console.log("TogglePastTests: No test plans available to show");
+        alert("No test plans available to review. Complete a game to create a test plan.");
+        return;
+      }
+      
+      // If we have an active game with an unsaved test plan, save it first
       if (gameStarted && currentTestPlan.length > 0) {
-        console.log(`Saving current test plan with ${currentTestPlan.length} moves before showing history`);
+        console.log(`TogglePastTests: Saving current test plan with ${currentTestPlan.length} states before showing history`);
         saveCurrentTestPlan(currentTestPlan);
       }
       
-      // Then show the past tests
-      if (testPlans.length > 0) {
-        setShowPastTests(true);
-        
+      try {
         // Initialize to the last test plan and the first move
         const lastPlanIndex = testPlans.length - 1;
-        console.log(`Setting selected test plan to the most recent (index ${lastPlanIndex})`);
+        console.log(`TogglePastTests: Setting selected test plan to the most recent (index ${lastPlanIndex})`);
         setSelectedTestPlanIndex(lastPlanIndex);
         setCurrentReplayMove(0);
         
-        // Log available test plans for debugging
+        // Show the past tests panel - IMPORTANT: This must be after setting up the test plan index
+        console.log("TogglePastTests: Setting showPastTests to true");
+        setShowPastTests(true);
+        
+        // Log test plans for debugging
+        console.log("TogglePastTests: Test plans array structure:", JSON.stringify(testPlans));
         testPlans.forEach((plan, idx) => {
-          console.log(`Plan ${idx}: ${plan.length} moves, final move: ${plan[plan.length-1]?.moveNumber}, final score: ${plan[plan.length-1]?.score}`);
+          console.log(`TogglePastTests: Plan ${idx}: ${plan.length} states, final score: ${plan[plan.length-1]?.score}`);
+          console.log(`TogglePastTests: First item in plan:`, JSON.stringify(plan[0]));
         });
-      } else {
-        console.log("No test plans available to show - check if plans are being saved correctly");
-        alert("No test plans available to review. Try completing a game first.");
+      } catch (error) {
+        console.error("TogglePastTests: Error occurred:", error);
       }
     }
   };
@@ -421,29 +534,58 @@ const GameBoard: React.FC = () => {
 
     let cellClass = 'grid-cell';
     let content: React.ReactNode = null;
+    
+    // Get the entity type safely - handle both class instances and plain objects
+    const entityType = typeof entity.getType === 'function' 
+      ? entity.getType() 
+      : (entity as any).type;
+    
+    console.log(`Rendering cell at (${row},${col}) with entity type: ${entityType}`);
 
-    switch (entity.getType()) {
+    switch (entityType) {
       case CellType.KAIJU:
-        const kaiju = entity as Kaiju;
-        const kaijuType = kaiju.getKaijuType();
+        let kaijuType;
+        let power;
+        
+        // Handle both Kaiju class instance and plain object
+        if (typeof (entity as Kaiju).getKaijuType === 'function') {
+          kaijuType = (entity as Kaiju).getKaijuType();
+          power = (entity as Kaiju).getPower();
+        } else {
+          kaijuType = (entity as any).kaijuType;
+          power = (entity as any).power;
+        }
+        
         cellClass += ` kaiju ${kaijuType}`;
         content = (
           <>
             <div className="kaiju-icon" />
-            <div className="kaiju-power">{kaiju.getPower()}</div>
+            <div className="kaiju-power">{power}</div>
           </>
         );
         break;
 
       case CellType.BUILDING:
-        const building = entity as Building;
-        const buildingType = building.getBuildingType();
+        let buildingType;
+        let floor1Command = null;
+        let floor2Command = null;
+        let intactFloors;
+        
+        // Handle both Building class instance and plain object
+        if (typeof (entity as Building).getBuildingType === 'function') {
+          const building = entity as Building;
+          buildingType = building.getBuildingType();
+          floor1Command = building.getCommand(0);
+          floor2Command = building.getCommand(1);
+          intactFloors = building.getIntactFloors();
+        } else {
+          buildingType = (entity as any).buildingType;
+          intactFloors = (entity as any).intactFloors || 0;
+          // Plain objects don't have command info, so leave floor1Command and floor2Command as null
+        }
+        
         cellClass += ` building ${buildingType}`;
         
-        const floor1Command = building.getCommand(0);
-        const floor2Command = building.getCommand(1);
-        const intactFloors = building.getIntactFloors();
-
         content = (
           <>
             <div className="building-icon" />
@@ -464,15 +606,29 @@ const GameBoard: React.FC = () => {
         break;
 
       case CellType.OBSTACLE:
-        const obstacle = entity as Obstacle;
-        const obstacleType = obstacle.getObstacleType();
+        let obstacleType;
+        
+        // Handle both Obstacle class instance and plain object
+        if (typeof (entity as Obstacle).getObstacleType === 'function') {
+          obstacleType = (entity as Obstacle).getObstacleType();
+        } else {
+          obstacleType = (entity as any).obstacleType;
+        }
+        
         cellClass += ` obstacle ${obstacleType}`;
         content = <div className="obstacle-icon" />;
         break;
 
       case CellType.BED:
-        const bed = entity as Bed;
-        const bedKaijuType = bed.getKaijuType();
+        let bedKaijuType;
+        
+        // Handle both Bed class instance and plain object
+        if (typeof (entity as Bed).getKaijuType === 'function') {
+          bedKaijuType = (entity as Bed).getKaijuType();
+        } else {
+          bedKaijuType = (entity as any).kaijuType;
+        }
+        
         cellClass += ` bed ${bedKaijuType}`;
         content = <div className="bed-icon" />;
         break;
@@ -505,33 +661,47 @@ const GameBoard: React.FC = () => {
 
   // Render game grid
   const renderGrid = () => {
+    console.log("RENDER GRID CALLED, showPastTests =", showPastTests);
+    
     let grid;
     let rows;
     let cols;
     
     if (showPastTests && testPlans.length > 0 && selectedTestPlanIndex < testPlans.length) {
-      // Show replay state
-      const selectedPlan = testPlans[selectedTestPlanIndex];
-      if (selectedPlan && selectedPlan.length > 0) {
-        const safeIndex = Math.min(currentReplayMove, selectedPlan.length - 1);
-        console.log(`Rendering replay grid: plan ${selectedTestPlanIndex}, move ${safeIndex}`);
-        
-        const moveState = selectedPlan[safeIndex];
-        if (moveState && moveState.gridState) {
-          grid = moveState.gridState;
-          // Assuming all test plans use the same board size
-          rows = grid.length;
-          cols = grid[0].length;
+      console.log(`RenderGrid: Attempting to render grid for test plan review: selectedIndex=${selectedTestPlanIndex}, replayMove=${currentReplayMove}`);
+      
+      try {
+        // Show replay state
+        const selectedPlan = testPlans[selectedTestPlanIndex];
+        if (selectedPlan && selectedPlan.length > 0) {
+          const safeIndex = Math.min(currentReplayMove, selectedPlan.length - 1);
+          console.log(`RenderGrid: Using replay state at index ${safeIndex}`);
+          
+          const moveState = selectedPlan[safeIndex];
+          if (moveState && moveState.gridState && Array.isArray(moveState.gridState)) {
+            grid = moveState.gridState;
+            // Assuming all test plans use the same board size
+            rows = grid.length;
+            cols = grid[0].length;
+            console.log(`RenderGrid: Test plan grid dimensions: ${rows}x${cols}`);
+          } else {
+            console.error(`RenderGrid: Invalid move state at index ${safeIndex} in plan ${selectedTestPlanIndex}`);
+            // Fall back to current game state
+            const gameBoard = gameService.getGameBoard();
+            grid = gameBoard.getGrid();
+            rows = gameBoard.getRows();
+            cols = gameBoard.getCols();
+          }
         } else {
-          console.error(`Invalid move state at index ${safeIndex} in plan ${selectedTestPlanIndex}`);
+          console.error(`RenderGrid: Selected plan ${selectedTestPlanIndex} is empty or invalid`);
           // Fall back to current game state
           const gameBoard = gameService.getGameBoard();
           grid = gameBoard.getGrid();
           rows = gameBoard.getRows();
           cols = gameBoard.getCols();
         }
-      } else {
-        console.error(`Selected plan ${selectedTestPlanIndex} is empty or invalid`);
+      } catch (error) {
+        console.error("RenderGrid: Error rendering test plan grid:", error);
         // Fall back to current game state
         const gameBoard = gameService.getGameBoard();
         grid = gameBoard.getGrid();
@@ -540,12 +710,15 @@ const GameBoard: React.FC = () => {
       }
     } else {
       // Show current game state
+      console.log("RenderGrid: Using current game state");
       const gameBoard = gameService.getGameBoard();
       grid = gameBoard.getGrid();
       rows = gameBoard.getRows();
       cols = gameBoard.getCols();
     }
 
+    console.log(`RenderGrid: Final grid dimensions: ${rows}x${cols}`);
+    
     return (
       <div 
         className="game-grid"
@@ -565,25 +738,65 @@ const GameBoard: React.FC = () => {
 
   // Render past tests panel
   const renderPastTestsPanel = () => {
-    // Make sure we have a valid selected plan
-    if (!testPlans[selectedTestPlanIndex] || testPlans[selectedTestPlanIndex].length === 0) {
-      console.error(`Selected plan ${selectedTestPlanIndex} is invalid or empty`);
+    console.log("RENDER PAST TESTS PANEL CALLED, showPastTests =", showPastTests, "testPlans.length =", testPlans.length);
+    
+    // Check if there are no test plans or invalid index
+    if (testPlans.length === 0 || selectedTestPlanIndex < 0 || selectedTestPlanIndex >= testPlans.length) {
+      console.error(`RenderPastTestsPanel: No test plans available or invalid index: ${selectedTestPlanIndex}`);
       return (
         <div className="test-replay-panel">
           <div className="history-header">
             <h3>Test Plan Review</h3>
             <button className="close-history" onClick={togglePastTests}>×</button>
           </div>
-          <div className="no-history">No valid test data available</div>
+          <div className="no-history">No test plans available to review</div>
         </div>
       );
     }
     
+    // Check if selected plan is valid
     const selectedPlan = testPlans[selectedTestPlanIndex];
-    const maxMoves = Math.max(0, selectedPlan.length - 1);
-    const safeCurrentMove = Math.min(currentReplayMove, maxMoves);
+    if (!selectedPlan || !Array.isArray(selectedPlan) || selectedPlan.length === 0) {
+      console.error(`RenderPastTestsPanel: Selected plan at index ${selectedTestPlanIndex} is invalid or empty`);
+      console.log("Plan data:", selectedPlan);
+      return (
+        <div className="test-replay-panel">
+          <div className="history-header">
+            <h3>Test Plan Review</h3>
+            <button className="close-history" onClick={togglePastTests}>×</button>
+          </div>
+          <div className="no-history">Selected test plan is invalid or empty</div>
+        </div>
+      );
+    }
     
-    console.log(`Rendering test panel: plan ${selectedTestPlanIndex}, currentMove: ${safeCurrentMove}, maxMoves: ${maxMoves}`);
+    console.log(`RenderPastTestsPanel: Rendering plan ${selectedTestPlanIndex} with ${selectedPlan.length} states`);
+    console.log("First state in plan:", selectedPlan[0]);
+    
+    // Calculate max moves (0-indexed, so subtract 1)
+    const maxMoves = Math.max(0, selectedPlan.length - 1);
+    
+    // Ensure current replay move is valid
+    const safeCurrentMove = Math.min(currentReplayMove, maxMoves);
+    if (safeCurrentMove !== currentReplayMove) {
+      console.log(`RenderPastTestsPanel: Adjusting currentReplayMove from ${currentReplayMove} to safe value ${safeCurrentMove}`);
+      setCurrentReplayMove(safeCurrentMove);
+    }
+    
+    // Get the current state to display - with error checking
+    let currentState = null;
+    try {
+      currentState = selectedPlan[safeCurrentMove];
+      console.log(`RenderPastTestsPanel: Current state at move ${safeCurrentMove}:`, currentState);
+    } catch (error) {
+      console.error(`Error accessing state at index ${safeCurrentMove}:`, error);
+    }
+    
+    if (!currentState) {
+      console.error(`RenderPastTestsPanel: No valid state found at move ${safeCurrentMove}`);
+    } else {
+      console.log(`RenderPastTestsPanel: Displaying state for move ${currentState.moveNumber}, score ${currentState.score}`);
+    }
 
     return (
       <div className="test-replay-panel">
@@ -601,7 +814,7 @@ const GameBoard: React.FC = () => {
             >
               {testPlans.map((plan, index) => (
                 <option key={index} value={index}>
-                  Test Plan {index + 1} ({plan.length} moves)
+                  Plan {index + 1} ({plan?.length || 0} moves, Score: {plan && plan.length > 0 ? plan[plan.length-1]?.score || 0 : 0})
                 </option>
               ))}
             </select>
@@ -638,25 +851,25 @@ const GameBoard: React.FC = () => {
             disabled={maxMoves <= 0}
             step="1"
           />
-          <span>{maxMoves}</span>
+          <span>Max: {maxMoves}</span>
         </div>
         
         <div className="history-content">
-          {selectedPlan.length === 0 ? (
-            <div className="no-history">No test data available</div>
+          {!currentState ? (
+            <div className="no-history">No data available for this move</div>
           ) : (
             <div className="test-info">
               <h4>Move {safeCurrentMove} Details</h4>
               <div className="move-details">
                 <div className="move-score">
-                  Score: {selectedPlan[safeCurrentMove]?.score || 0}
+                  Score: {currentState.score || 0}
                 </div>
                 <div className="move-commands">
                   <h5>Commands Placed:</h5>
-                  {!selectedPlan[safeCurrentMove] || (selectedPlan[safeCurrentMove]?.commandsPlaced || []).length === 0 ? (
+                  {!currentState.commandsPlaced || currentState.commandsPlaced.length === 0 ? (
                     <div className="no-commands">No commands placed</div>
                   ) : (
-                    selectedPlan[safeCurrentMove]?.commandsPlaced.map((cmd, cmdIndex) => (
+                    currentState.commandsPlaced.map((cmd, cmdIndex) => (
                       <div key={cmdIndex} className="history-command">
                         <span>
                           ({cmd.position.row}, {cmd.position.col}) - Floor {cmd.floor + 1}: 
@@ -705,6 +918,18 @@ const GameBoard: React.FC = () => {
         {renderGrid()}
         {showPastTests && renderPastTestsPanel()}
       </div>
+      
+      {/* Debug button for testing */}
+      <button 
+        onClick={() => {
+          debugState();
+          console.log("Test plans:", testPlans);
+          console.log("Show past tests:", showPastTests);
+        }}
+        style={{ marginBottom: '10px', padding: '5px', background: '#333', color: 'white', border: 'none' }}
+      >
+        Debug State
+      </button>
       
       <div className="game-controls">
         {!gameStarted ? (
